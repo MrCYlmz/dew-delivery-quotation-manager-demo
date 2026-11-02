@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>de.dew</groupId>
+    <artifactId>delivery-quotation-manager</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>parser</artifactId>
+  <name>Packing list parser</name>
+  <description>Reads the factory packing list per SPEC.md section 8. Plain Java, no Spring.</description>
+
+  <dependencies>
+    <dependency><groupId>org.apache.poi</groupId><artifactId>poi</artifactId></dependency>
+    <dependency><groupId>org.apache.poi</groupId><artifactId>poi-ooxml</artifactId></dependency>
+    <dependency><groupId>org.slf4j</groupId><artifactId>slf4j-api</artifactId></dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId>
+      <version>${junit.version}</version><scope>test</scope>
+    </dependency>
+    <!-- POI logs through log4j2-api. With no binding it prints
+         "ERROR Log4j API could not find a logging provider" on a passing build, which is
+         exactly the noise that trains people to ignore real errors. Bridge it to SLF4J in
+         tests; the backend already gets this from Spring Boot. -->
+    <dependency>
+      <groupId>org.apache.logging.log4j</groupId><artifactId>log4j-to-slf4j</artifactId>
+      <version>2.24.3</version><scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId><artifactId>slf4j-simple</artifactId>
+      <version>2.0.16</version><scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

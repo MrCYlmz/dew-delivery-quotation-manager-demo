@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>de.dew</groupId>
+    <artifactId>delivery-quotation-manager</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>backend</artifactId>
+  <name>Delivery archive backend</name>
+
+  <dependencies>
+    <dependency><groupId>de.dew</groupId><artifactId>parser</artifactId></dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <!-- Spring Data JDBC, not Hibernate: the SQLite dialect is community-maintained (SPEC.md 10.1) -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-jdbc</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+
+    <dependency><groupId>org.xerial</groupId><artifactId>sqlite-jdbc</artifactId><version>3.47.1.0</version></dependency>
+    <!-- SQLite support is inside flyway-core; there is no flyway-database-sqlite artifact -->
+    <dependency><groupId>org.flywaydb</groupId><artifactId>flyway-core</artifactId></dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <properties>
+    <!-- `mvn -Dskip.frontend=true test` skips the npm work when only the Java side matters. -->
+    <skip.frontend>false</skip.frontend>
+    <node.version>v22.22.2</node.version>
+  </properties>
+
+  <build>
+    <plugins>
+      <!-- CONTRACTS.md section 4: one jar serves the frontend and the API.
+
+           Downloads its own Node rather than using whatever is on PATH, so the jar builds
+           identically here and on the Windows CI runner jpackage needs (SPEC.md 10.4). Bound to
+           generate-resources because the assets must exist before Maven copies resources into
+           target/classes — at prepare-package they would miss the jar entirely. -->
+      <plugin>
+        <groupId>com.github.eirslett</groupId>
+        <artifactId>frontend-maven-plugin</artifactId>
+        <version>1.15.1</version>
+        <configuration>
+          <workingDirectory>../frontend</workingDirectory>
+          <installDirectory>${project.build.directory}/node</installDirectory>
+          <skip>${skip.frontend}</skip>
+        </configuration>
+        <executions>
+          <execution>
+            <id>install-node-and-npm</id>
+            <goals><goal>install-node-and-npm</goal></goals>
+            <phase>generate-resources</phase>
+            <configuration><nodeVersion>${node.version}</nodeVersion></configuration>
+          </execution>
+          <execution>
+            <id>npm-ci</id>
+            <goals><goal>npm</goal></goals>
+            <phase>generate-resources</phase>
+            <!-- ci, not install: package-lock.json is committed, so the build is reproducible -->
+            <configuration><arguments>ci --no-audit --no-fund</arguments></configuration>
+          </execution>
+          <execution>
+            <id>npm-typecheck</id>
+            <goals><goal>npm</goal></goals>
+            <phase>generate-resources</phase>
+            <!-- A type error should fail the build, not reach Alice as a broken screen -->
+            <configuration><arguments>run typecheck</arguments></configuration>
+          </execution>
+          <execution>
+            <id>npm-lint</id>
+            <goals><goal>npm</goal></goals>
+            <phase>generate-resources</phase>
+            <configuration><arguments>run lint</arguments></configuration>
+          </execution>
+          <execution>
+            <id>npm-test</id>
+            <goals><goal>npm</goal></goals>
+            <phase>generate-resources</phase>
+            <configuration><arguments>test</arguments></configuration>
+          </execution>
+          <execution>
+            <id>npm-build</id>
+            <goals><goal>npm</goal></goals>
+            <phase>generate-resources</phase>
+            <configuration><arguments>run build</arguments></configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <!-- Spring needs parameter names to bind @PathVariable/@RequestParam without an
+               explicit name, and spring-boot-starter-parent normally sets this. This project
+               inherits a plain parent pom instead, so it is set here. The controllers name
+               every binding explicitly as well: the REST API is a contract (CONTRACTS.md 3) and
+               must not depend on a compiler flag staying switched on. -->
+          <compilerArgs>
+            <arg>-parameters</arg>
+          </compilerArgs>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <!-- spring-boot-starter-parent binds this for you; a plain parent pom does not,
+                 so without it `mvn package` produces a jar with no main manifest attribute.
+                 SPEC.md 10.4 has all three packaging targets consuming this one runnable jar,
+                 so it has to actually run. -->
+            <goals>
+              <goal>repackage</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

@@ -1,0 +1,198 @@
+# Builds the Windows installer Alice double-clicks, plus a portable zip that needs no
+# installation at all.
+#
+# Why a Windows runner: jpackage does not cross-compile (SPEC.md 10.4). It can only build a
+# Windows package while running on Windows, and the installer formats (exe/msi) need the WiX
+# Toolset on top of that. Development happens on Linux, so this is the only way to produce
+# the artifact at all.
+#
+# Two artifacts on purpose, because SPEC.md 10.4 flags an unanswered question: whether Alice
+# is even allowed to install software on her laptop.
+#   * the installer   — best experience, Start Menu entry, per-user so it needs NO admin rights
+#   * the portable zip — unzip and run, for a locked-down machine where even a per-user
+#     installer is blocked
+# The zip costs one extra jpackage call and removes the risk of finding that out too late.
+
+name: Windows executable
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version for the installer (numeric major.minor.patch)"
+        required: false
+        default: "1.0.0"
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # needed only to attach artifacts to a release on a tag
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      # jpackage requires a Windows version string of numeric major.minor.patch, and the MSI
+      # machinery underneath rejects a major of 0. The project's own Maven version is
+      # 0.1.0-SNAPSHOT, which is invalid on both counts, so the package version comes from the
+      # tag (or the dispatch input) and is validated here rather than failing deep inside
+      # jpackage with a cryptic message.
+      - name: Resolve and validate version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            version="${GITHUB_REF#refs/tags/}"
+            version="${version#v}"
+          else
+            version="${{ inputs.version }}"
+          fi
+          version="${version%-SNAPSHOT}"
+          if [[ ! "$version" =~ ^[1-9][0-9]*\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version '$version' is not usable by jpackage on Windows."
+            echo "::error::It must be numeric major.minor.patch with a major of 1 or more (e.g. 1.0.0)."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Packaging version $version"
+
+      # Builds the whole app: parser, backend, and the Vue frontend into the jar's static
+      # resources. Tests run — an installer built from a failing build is worse than no
+      # installer, because it looks finished.
+      - name: Build the runnable jar
+        shell: bash
+        run: mvn -B --no-transfer-progress clean package
+
+      # The exe/msi installer formats need WiX. Runner images have carried WiX 3.x
+      # historically but it has come and gone between image versions, so this detects it and
+      # installs it only when missing rather than assuming either way.
+      - name: Ensure WiX Toolset is available
+        shell: pwsh
+        run: |
+          $candle = Get-ChildItem "C:\Program Files (x86)\WiX Toolset*\bin\candle.exe" -ErrorAction SilentlyContinue |
+                    Select-Object -First 1
+          if (-not $candle) {
+            Write-Host "WiX not present on this image; installing."
+            choco install wixtoolset --no-progress -y
+            $candle = Get-ChildItem "C:\Program Files (x86)\WiX Toolset*\bin\candle.exe" -ErrorAction SilentlyContinue |
+                      Select-Object -First 1
+          }
+          if (-not $candle) { throw "WiX Toolset could not be located after installation." }
+          Write-Host "Using WiX at $($candle.Directory.FullName)"
+          Add-Content -Path $env:GITHUB_PATH -Value $candle.Directory.FullName
+
+      # jpackage copies EVERYTHING in --input into the application, so the input directory
+      # must hold the one runnable jar and nothing else. Pointing it at target/ would drag in
+      # the unpackaged classes, the original jar and the whole build tree.
+      - name: Stage the jar
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p staging
+          cp backend/target/backend-*.jar staging/app.jar
+          ls -l staging
+
+      # --win-per-user-install is the important flag: it installs under %LOCALAPPDATA% and
+      #   needs no administrator rights, which is the difference between Alice installing this
+      #   herself and having to raise a ticket with IT (SPEC.md 10.4).
+      # --win-console is deliberate for a server application: without it the process is
+      #   invisible, and Alice has no way to tell it started or to stop it. The console prints
+      #   the port, and closing it shuts the app down.
+      # -Dspring.profiles.active=windows moves the database and uploads to
+      #   %LOCALAPPDATA%\DewDeliveryArchive. Without it the app inherits the relative ./data/
+      #   default and tries to write inside its own install directory, which Windows refuses —
+      #   see backend/src/main/resources/application-windows.yml.
+      # The main class is read from the jar manifest (Spring Boot's JarLauncher) rather than
+      #   hardcoded here, so a Boot upgrade that renames it cannot silently break packaging.
+      - name: Build the installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          jpackage \
+            --type exe \
+            --name "DEW Delivery Archive" \
+            --app-version "${{ steps.version.outputs.version }}" \
+            --vendor "DEW" \
+            --description "Archive of past deliveries for quoting new ones" \
+            --input staging \
+            --main-jar app.jar \
+            --java-options "-Dspring.profiles.active=windows" \
+            --dest dist \
+            --win-console \
+            --win-menu \
+            --win-menu-group "DEW Delivery Archive" \
+            --win-shortcut \
+            --win-dir-chooser \
+            --win-per-user-install \
+            --win-upgrade-uuid "6f3d9a42-8c17-4b5e-9a2f-1d7e4c8b3a56"
+
+      # Same application, no installer: unzip anywhere and run the launcher. This is the
+      # fallback if installing software on her machine turns out to be blocked entirely.
+      - name: Build the portable app image
+        shell: bash
+        run: |
+          set -euo pipefail
+          jpackage \
+            --type app-image \
+            --name "DEW Delivery Archive" \
+            --app-version "${{ steps.version.outputs.version }}" \
+            --vendor "DEW" \
+            --input staging \
+            --main-jar app.jar \
+            --java-options "-Dspring.profiles.active=windows" \
+            --dest portable \
+            --win-console
+
+      - name: Zip the portable app
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "portable\DEW Delivery Archive\*" `
+            -DestinationPath "dist\DEW-Delivery-Archive-${{ steps.version.outputs.version }}-portable.zip"
+
+      - name: Show what was produced
+        shell: bash
+        run: ls -lh dist
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ steps.version.outputs.version }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 90
+
+      # Only on a tag. A manual run leaves the artifacts on the workflow run, which is what
+      # you want while iterating on packaging.
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          body: |
+            Windows build of the Delivery Quotation Archive.
+
+            **`.exe`** — installer. Installs for the current user only, so it needs no
+            administrator rights. Adds a Start Menu entry.
+
+            **`-portable.zip`** — no installation. Unzip and run
+            `DEW Delivery Archive.exe` from the extracted folder.
+
+            Either way a console window opens and reports the port. Open
+            <http://localhost:8080> in a browser. Closing the console stops the app.
+
+            Your records live in `%LOCALAPPDATA%\DewDeliveryArchive` — both the database and
+            the uploaded files. That folder is the only thing worth backing up, and it
+            survives reinstalling or upgrading the app.

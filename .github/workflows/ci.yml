@@ -1,0 +1,48 @@
+# Runs the full build on every pull request, so a red branch shows before it is merged.
+#
+# One Maven command covers everything: the parser and backend tests, and the frontend
+# typecheck, lint and tests, which the frontend-maven-plugin runs inside the backend build.
+# It is the same command the reviewers run on a branch.
+
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # The Maven cache also holds the Node archive: frontend-maven-plugin keeps its download
+      # in the local repository, and node.version lives in backend/pom.xml, which is part of
+      # the cache key.
+      - name: Set up JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      # npm ci deletes node_modules, so the cache that saves the downloads is npm's own
+      # ~/.npm. The Node the build uses is the plugin's, not one from actions/setup-node.
+      - name: Cache npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
+      - name: Build and test
+        run: mvn -B --no-transfer-progress clean verify

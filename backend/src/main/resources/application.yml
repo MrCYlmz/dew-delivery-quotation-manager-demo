@@ -1,0 +1,48 @@
+# Every path and port here is externalised on purpose (SPEC.md 10.4, discipline 1).
+# Packaging is deferred; overriding these via env vars is what keeps all three
+# targets — jpackage exe, Docker, hosted — open at no cost.
+
+server:
+  port: ${DEW_PORT:8080}
+
+spring:
+  application:
+    name: delivery-quotation-manager
+  datasource:
+    # foreign_keys=on is not optional: SQLite disables foreign key enforcement per
+    # connection by default, which would make every ON DELETE CASCADE in V1__baseline.sql
+    # silently inert and leave orphaned child rows behind a deleted delivery (F-3).
+    # busy_timeout covers the one-writer-at-a-time property of SQLite (SPEC.md 10.3).
+    url: jdbc:sqlite:${DEW_DB_PATH:./data/deliveries.db}?foreign_keys=on&busy_timeout=${DEW_BUSY_TIMEOUT_MS:5000}
+    driver-class-name: org.sqlite.JDBC
+    hikari:
+      # SQLite allows one writer at a time (SPEC.md 10.3). A small pool keeps concurrent
+      # writes from turning into SQLITE_BUSY for the sake of parallelism one user cannot use.
+      maximum-pool-size: ${DEW_DB_POOL_SIZE:4}
+  data:
+    jdbc:
+      repositories:
+        # Spring Data JDBC *repositories* are off; spring-jdbc's JdbcTemplate is what the
+        # DAOs use. Spring Data Relational 3.4.1 ships no SQLite dialect and its
+        # DialectResolver throws NoDialectException rather than falling back, so enabling
+        # the repository auto-configuration fails at startup on SQLite.
+        enabled: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  servlet:
+    multipart:
+      max-file-size: ${DEW_MAX_FILE_SIZE:50MB}
+      max-request-size: ${DEW_MAX_REQUEST_SIZE:200MB}   # several PDFs in one request (F-5)
+
+dew:
+  # Uploaded PDFs and Excels. Stored under generated names; original filenames
+  # live in the database, never on disk (SPEC.md section 7).
+  storage-dir: ${DEW_STORAGE_DIR:./data/uploads}
+
+  # Off by default, on purpose. Every @SpringBootTest in this module starts a context, so a
+  # default of true would open a browser window per test class; and SPEC.md 10.4 keeps a
+  # hosted Linux deployment open, where opening a browser on the server is meaningless.
+  # The windows profile turns it on — that is the packaged desktop app, which has no window
+  # of its own. Set DEW_OPEN_BROWSER=true to get it when running the jar by hand.
+  open-browser: ${DEW_OPEN_BROWSER:false}

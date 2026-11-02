@@ -1,0 +1,34 @@
+# Activated by the jpackage launcher: -Dspring.profiles.active=windows
+#
+# Why this profile exists at all: the default paths in application.yml are relative
+# (./data/...), which is right for development and wrong for an installed application.
+# jpackage installs under Program Files (or %LOCALAPPDATA%\Programs for a per-user
+# install) and launches with an unpredictable working directory, so a relative ./data
+# either lands somewhere surprising or fails outright on a directory Windows will not
+# let the app write to. SQLite cannot create its database and the app dies at startup.
+#
+# Every value here is still overridable by the same environment variables as the
+# defaults it replaces (SPEC.md 10.4, discipline 1) — the profile only moves the
+# fallback to a location the user always owns.
+
+dew:
+  # %LOCALAPPDATA% is the conventional home for a desktop app's own data on Windows;
+  # user.home is the fallback so this profile still works if it is ever activated
+  # somewhere without it. No spaces in the directory name, deliberately: it ends up
+  # inside a JDBC URL.
+  data-dir: ${DEW_DATA_DIR:${LOCALAPPDATA:${user.home}}/DewDeliveryArchive}
+  storage-dir: ${DEW_STORAGE_DIR:${dew.data-dir}/uploads}
+
+  # The packaged app is a server with no window: Alice double-clicks it, a console appears,
+  # and without this she has to remember and type a URL. See BrowserLauncher.
+  open-browser: ${DEW_OPEN_BROWSER:true}
+
+spring:
+  # Spring Boot sets java.awt.headless=true by default for web apps, which makes AWT's Desktop
+  # API report itself unsupported. BrowserLauncher falls back to a platform command either way,
+  # but on the desktop build there is no reason to run headless — turning it off lets the
+  # Desktop path work as intended.
+  main:
+    headless: false
+  datasource:
+    url: jdbc:sqlite:${DEW_DB_PATH:${dew.data-dir}/deliveries.db}?foreign_keys=on&busy_timeout=${DEW_BUSY_TIMEOUT_MS:5000}

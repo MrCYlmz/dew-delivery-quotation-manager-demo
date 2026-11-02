@@ -1,0 +1,89 @@
+<script setup lang="ts">
+import DeliveryFormTemplate from '../components/templates/DeliveryFormTemplate.vue'
+import { useDeliveryFormPage } from '../composables/useDeliveryFormPage'
+
+const {
+  deliveryId,
+  isEdit,
+  form,
+  fieldErrors,
+  loading,
+  saving,
+  loadError,
+  saveError,
+  confirmingDelete,
+  existing,
+  excelFile,
+  parsing,
+  parseError,
+  parsed,
+  parsedHints,
+  queuedPdfs,
+  removingPdfId,
+  pdfError,
+  companies,
+  originCities,
+  destinationCities,
+  load,
+  save,
+  deleteRecord,
+  pickPackingList,
+  clearPackingList,
+  removePdf,
+  dismissSaveError,
+  cancel,
+} = useDeliveryFormPage()
+</script>
+
+<template>
+  <DeliveryFormTemplate
+    v-model:customer-company="form.customer_company"
+    v-model:status="form.status"
+    v-model:transport-method="form.transport_method"
+    v-model:shipping-date="form.shipping_date"
+    v-model:expected-arrival-date="form.expected_arrival_date"
+    v-model:arrival-date="form.arrival_date"
+    v-model:offer-price-eur="form.offer_price_eur"
+    v-model:cost-eur="form.cost_eur"
+    v-model:origin-country="form.origin_country"
+    v-model:origin-city="form.origin_city"
+    v-model:origin-postal-code="form.origin_postal_code"
+    v-model:origin-street="form.origin_street"
+    v-model:destination-country="form.destination_country"
+    v-model:destination-city="form.destination_city"
+    v-model:destination-postal-code="form.destination_postal_code"
+    v-model:destination-street="form.destination_street"
+    v-model:notes="form.notes"
+    v-model:volume="form.volume_m3"
+    v-model:gross-weight="form.gross_weight_kg"
+    v-model:pallets="form.pallet_count"
+    v-model:queued-pdfs="queuedPdfs"
+    v-model:confirming-delete="confirmingDelete"
+    :is-edit="isEdit"
+    :delivery-id="deliveryId"
+    :existing="existing"
+    :loading="loading"
+    :load-error="loadError"
+    :saving="saving"
+    :save-error="saveError"
+    :field-errors="fieldErrors"
+    :companies="companies"
+    :origin-cities="originCities"
+    :destination-cities="destinationCities"
+    :excel-file="excelFile"
+    :parsing="parsing"
+    :parse-error="parseError"
+    :parsed="parsed"
+    :parsed-hints="parsedHints"
+    :removing-pdf-id="removingPdfId"
+    :pdf-error="pdfError"
+    @retry="load"
+    @submit="save"
+    @cancel="cancel"
+    @delete="deleteRecord"
+    @dismiss-save-error="dismissSaveError"
+    @pick-packing-list="pickPackingList"
+    @clear-packing-list="clearPackingList"
+    @remove-pdf="removePdf"
+  />
+</template>
